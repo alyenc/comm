@@ -11,8 +11,6 @@ public interface ConnectionInitializer {
 
     CompletableFuture<Void> stop();
 
-    void subscribeIncomingConnect(final ConnectCallback callback);
-
     CompletableFuture<PeerConnection> connect(RemotePeer remotePeer);
 }
 

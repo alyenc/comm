@@ -10,12 +10,12 @@ public class PingMessage extends EmptyMessage {
     private PingMessage() {}
 
     @Override
-    public String getRequestId() {
+    public String requestId() {
         return "";
     }
 
     @Override
-    public int getCode() {
+    public int code() {
         return MessageCodes.PING;
     }
 

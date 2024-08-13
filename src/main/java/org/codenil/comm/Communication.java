@@ -2,13 +2,20 @@ package org.codenil.comm;
 
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
-import org.codenil.comm.connections.*;
+
+import org.codenil.comm.callback.ConnectCallback;
+import org.codenil.comm.callback.DisconnectCallback;
+import org.codenil.comm.callback.MessageCallback;
+import org.codenil.comm.connections.ConnectionInitializer;
+import org.codenil.comm.connections.PeerConnection;
+import org.codenil.comm.connections.PeerConnectionEvents;
 import org.codenil.comm.message.DisconnectReason;
-import org.codenil.comm.message.MessageCallback;
+import org.codenil.comm.message.RawMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nonnull;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -21,22 +28,14 @@ public class Communication {
 
     private static final Logger logger = LoggerFactory.getLogger(Communication.class);
 
-    /**
-     * 连接初始化
-     */
+    /** 连接初始化 */
     private final ConnectionInitializer connectionInitializer;
-    /**
-     * 消息订阅
-     */
+
+    /** 消息订阅 */
     private final PeerConnectionEvents connectionEvents;
-    /**
-     * 连接回调订阅
-     */
-    private final Subscribers<ConnectCallback> connectSubscribers = Subscribers.create();
-    /**
-     * 连接缓存
-     */
-    private final Cache<String, CompletableFuture<PeerConnection>> peersConnectingCache = CacheBuilder.newBuilder()
+
+    /** 连接缓存 */
+    private final Cache<String, CompletableFuture<PeerConnection>> connectingCache = CacheBuilder.newBuilder()
             .expireAfterWrite(Duration.ofSeconds(30L)).concurrencyLevel(1).build();
 
     private final AtomicBoolean started = new AtomicBoolean(false);
@@ -59,7 +58,7 @@ public class Communication {
         }
 
         //注册回调监听
-        setupListeners();
+        connectionEvents.subscribeConnect(this::dispatchConnect);
 
         //启动连接初始化
         return connectionInitializer
@@ -81,7 +80,7 @@ public class Communication {
                     new IllegalStateException("Illegal attempt to stop " + getClass().getSimpleName()));
         }
 
-        peersConnectingCache.asMap()
+        connectingCache.asMap()
                 .values()
                 .forEach((conn) -> {
                     try {
@@ -97,17 +96,17 @@ public class Communication {
      * 连接到远程节点
      */
     public CompletableFuture<PeerConnection> connect(final RemotePeer remotePeer) {
-        final CompletableFuture<PeerConnection> peerConnectionCompletableFuture;
+        final CompletableFuture<PeerConnection> completableFuture;
         try {
             synchronized (this) {
                 //尝试从缓存获取链接，获取不到就创建一个
-                peerConnectionCompletableFuture = peersConnectingCache.get(
-                        remotePeer.ip(), () -> createConnection(remotePeer));
+                completableFuture = connectingCache.get(remotePeer.endpoint(),
+                        () -> createConnection(remotePeer));
             }
         } catch (final ExecutionException e) {
             throw new RuntimeException(e);
         }
-        return peerConnectionCompletableFuture;
+        return completableFuture;
     }
 
     /**
@@ -121,7 +120,21 @@ public class Communication {
      * 订阅连接
      */
     public void subscribeConnect(final ConnectCallback callback) {
-        connectSubscribers.subscribe(callback);
+        connectionEvents.subscribeConnect(callback);
+    }
+
+    /**
+     * 订阅断开
+     */
+    public void subscribeDisconnect(final DisconnectCallback callback) {
+        connectionEvents.subscribeDisconnect(callback);
+    }
+
+    /**
+     * 订阅指定code的消息
+     */
+    public void subscribeByCode(final int code, final MessageCallback callback) {
+        connectionEvents.subscribeByCode(code, callback);
     }
 
     /**
@@ -129,10 +142,20 @@ public class Communication {
      */
     @Nonnull
     private CompletableFuture<PeerConnection> createConnection(final RemotePeer remotePeer) {
-        CompletableFuture<PeerConnection> completableFuture = initiateOutboundConnection(remotePeer);
+        CompletableFuture<PeerConnection> completableFuture = connectionInitializer
+                .connect(remotePeer)
+                .whenComplete((conn, err) -> {
+                    if (err != null) {
+                        logger.debug("Failed to connect to peer {}", remotePeer.toString());
+                    } else {
+                        logger.debug("Outbound connection established to peer: {}", remotePeer.toString());
+                    }
+                });;
 
         completableFuture.whenComplete((peerConnection, throwable) -> {
             if (throwable == null) {
+                remotePeer.setPkiId(peerConnection.remoteIdentifier());
+                peerConnection.setRemotePeer(remotePeer);
                 dispatchConnect(peerConnection);
             }
         });
@@ -140,34 +163,30 @@ public class Communication {
     }
 
     /**
-     * 初始化远程连接
-     */
-    private CompletableFuture<PeerConnection> initiateOutboundConnection(final RemotePeer remotePeer) {
-        logger.trace("Initiating connection to peer: {}:{}", remotePeer.ip(), remotePeer.listeningPort());
-
-        return connectionInitializer
-                .connect(remotePeer)
-                .whenComplete((conn, err) -> {
-                    if (err != null) {
-                        logger.debug("Failed to connect to peer {}: {}", remotePeer.ip(), err.getMessage());
-                    } else {
-                        logger.debug("Outbound connection established to peer: {}", remotePeer.ip());
-                    }
-                });
-    }
-
-    private void setupListeners() {
-        connectionInitializer.subscribeIncomingConnect(this::handleIncomingConnection);
-    }
-
-    private void handleIncomingConnection(final PeerConnection peerConnection) {
-        dispatchConnect(peerConnection);
-    }
-
-    /**
      * 连接完成后调用注册的回调
      */
     private void dispatchConnect(final PeerConnection connection) {
-        connectSubscribers.forEach(c -> c.onConnect(connection));
+        connectionEvents.dispatchConnect(connection);
+    }
+
+    /**
+     * 连接断开后调用注册的回调
+     */
+    private void dispatchDisconnect(final PeerConnection connection) {
+        connectionEvents.dispatchDisconnect(connection);
+    }
+
+    /**
+     * 收到消息后调用注册的回调
+     */
+    private void dispatchMessage(final PeerConnection connection, final RawMessage message) {
+        connectionEvents.dispatchMessage(connection, message);
+    }
+
+    /**
+     * 收到指定code消息后调用指定回调
+     */
+    private void dispatchMessageByCode(final int code, final PeerConnection connection, final RawMessage message) {
+        connectionEvents.dispatchMessageByCode(code, connection, message);
     }
 }

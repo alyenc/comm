@@ -1,32 +1,30 @@
 package org.codenil.comm;
 
-import java.net.InetSocketAddress;
-
 public class RemotePeer {
 
-    private final String peerIdentity;
+    private String pkiId;
 
-    private final String ip;
-
-    private final int listeningPort;
+    private final String endpoint;
 
     public RemotePeer(
-            final String ip,
-            final int listeningPort) {
-        this.ip = ip;
-        this.listeningPort = listeningPort;
-        this.peerIdentity = new InetSocketAddress(ip, listeningPort).toString();
+            final String endpoint) {
+        this.endpoint = endpoint;
     }
 
-    public String peerIdentity() {
-        return peerIdentity;
+    public String pkiId() {
+        return pkiId;
     }
 
-    public String ip() {
-        return ip;
+    public String endpoint() {
+        return endpoint;
     }
 
-    public int listeningPort() {
-        return listeningPort;
+    public void setPkiId(String pkiId) {
+        this.pkiId = pkiId;
     }
+
+    public String toString() {
+        return String.format("%s, pkiId:%s", this.endpoint(), this.pkiId);
+    }
+
 }

@@ -1,10 +1,11 @@
-package org.codenil.comm.netty.handler;
+package org.codenil.comm.handler;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.DecoderException;
 import io.netty.handler.timeout.IdleStateHandler;
+
 import org.codenil.comm.connections.KeepAlive;
 import org.codenil.comm.connections.PeerConnection;
 import org.codenil.comm.connections.PeerConnectionEvents;
@@ -27,16 +28,16 @@ public class MessageFrameDecoder extends ByteToMessageDecoder {
 
     private static final Logger logger = LoggerFactory.getLogger(MessageFrameDecoder.class);
 
-    private final CompletableFuture<PeerConnection> connectFuture;
+    private final CompletableFuture<PeerConnection> connectionFuture;
     private final PeerConnectionEvents connectionEvents;
 
     private boolean hellosExchanged;
 
     public MessageFrameDecoder(
             final PeerConnectionEvents connectionEvents,
-            final CompletableFuture<PeerConnection> connectFuture) {
+            final CompletableFuture<PeerConnection> connectionFuture) {
         this.connectionEvents = connectionEvents;
-        this.connectFuture = connectFuture;
+        this.connectionFuture = connectionFuture;
     }
 
     @Override
@@ -70,14 +71,17 @@ public class MessageFrameDecoder extends ByteToMessageDecoder {
         byteBuf.readBytes(data);
 
         // 创建消息对象
-        RawMessage message = new RawMessage(code, data);
+        RawMessage message = RawMessage.create(code);
         message.setRequestId(id);
+        message.setData(data);
 
         if (hellosExchanged) {
             out.add(message);
-        } else if (message.getCode() == MessageCodes.HELLO) {
+        } else if (message.code() == MessageCodes.HELLO) {
             hellosExchanged = true;
-            final PeerConnection connection = new NettyPeerConnection(ctx, connectionEvents);
+
+            String remoteIdentifier = new String(message.data());
+            final PeerConnection connection = new NettyPeerConnection(ctx, remoteIdentifier, connectionEvents);
 
             /*
              * 如果收到的消息是Hello消息
@@ -89,24 +93,27 @@ public class MessageFrameDecoder extends ByteToMessageDecoder {
             final AtomicBoolean waitingForPong = new AtomicBoolean(false);
             ctx.channel()
                     .pipeline()
-                    .addLast(new IdleStateHandler(15, 0, 0),
-                            new KeepAlive(connection, waitingForPong),
-                            new CommonHandler(connection, connectionEvents, waitingForPong),
-                            new MessageFrameEncoder());
-            connectFuture.complete(connection);
-        } else if (message.getCode() == MessageCodes.DISCONNECT) {
+                    .addLast("IdleState", new IdleStateHandler(15, 0, 0))
+                    .addLast("KeepAlive", new KeepAlive(connection, waitingForPong))
+                    .addLast("Common", new CommonHandler(connection, connectionEvents, waitingForPong))
+                    .addLast("FrameEncoder", new MessageFrameEncoder());
+            connectionFuture.complete(connection);
+        } else if (message.code() == MessageCodes.DISCONNECT) {
             logger.debug("Disconnected before sending HELLO.");
             ctx.close();
-            connectFuture.completeExceptionally(new RuntimeException("Disconnect"));
+            connectionFuture.completeExceptionally(new RuntimeException("Disconnect"));
         } else {
             logger.debug(
                     "Message received before HELLO's exchanged, disconnecting.  Code: {}, Data: {}",
-                    message.getCode(), Arrays.toString(message.getData()));
+                    message.code(), Arrays.toString(message.data()));
 
             DisconnectMessage disconnectMessage = DisconnectMessage.create(DisconnectReason.UNKNOWN);
-            ctx.writeAndFlush(new RawMessage(disconnectMessage.getCode(), disconnectMessage.getData()))
-                    .addListener((f) -> ctx.close());
-            connectFuture.completeExceptionally(new RuntimeException("Message received before HELLO's exchanged"));
+
+            RawMessage rawMessage = RawMessage.create(disconnectMessage.code());
+            rawMessage.setData(disconnectMessage.data());
+            ctx.writeAndFlush(rawMessage)
+                    .addListener(_ -> ctx.close());
+            connectionFuture.completeExceptionally(new RuntimeException("Message received before HELLO's exchanged"));
         }
     }
 
@@ -119,8 +126,8 @@ public class MessageFrameDecoder extends ByteToMessageDecoder {
                         : throwable;
         if (cause instanceof IllegalArgumentException) {
             logger.debug("Invalid incoming message ", throwable);
-            if (connectFuture.isDone() && !connectFuture.isCompletedExceptionally()) {
-                connectFuture.get().disconnect(DisconnectReason.INVALID_MESSAGE_RECEIVED);
+            if (connectionFuture.isDone() && !connectionFuture.isCompletedExceptionally()) {
+                connectionFuture.get().disconnect(DisconnectReason.INVALID_MESSAGE_RECEIVED);
                 return;
             }
         } else if (cause instanceof IOException) {
@@ -129,10 +136,10 @@ public class MessageFrameDecoder extends ByteToMessageDecoder {
         } else {
             logger.error("Exception while processing incoming message", throwable);
         }
-        if (connectFuture.isDone() && !connectFuture.isCompletedExceptionally()) {
-            connectFuture.get().terminateConnection();
+        if (connectionFuture.isDone() && !connectionFuture.isCompletedExceptionally()) {
+            connectionFuture.get().terminateConnection();
         } else {
-            connectFuture.completeExceptionally(throwable);
+            connectionFuture.completeExceptionally(throwable);
             ctx.close();
         }
     }

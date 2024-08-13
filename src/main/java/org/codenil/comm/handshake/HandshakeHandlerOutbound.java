@@ -2,6 +2,7 @@ package org.codenil.comm.handshake;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
+
 import org.codenil.comm.connections.PeerConnection;
 import org.codenil.comm.connections.PeerConnectionEvents;
 import org.slf4j.Logger;
@@ -20,10 +21,11 @@ public class HandshakeHandlerOutbound extends AbstractHandshakeHandler {
     private final ByteBuf first;
 
     public HandshakeHandlerOutbound(
+            final String selfIdentifier,
             final CompletableFuture<PeerConnection> connectionFuture,
             final PeerConnectionEvents connectionEvent,
             final Handshaker handshaker) {
-        super(connectionFuture, connectionEvent, handshaker);
+        super(selfIdentifier, connectionFuture, connectionEvent, handshaker);
 
         handshaker.prepareInitiator();
         this.first = handshaker.firstMessage();

@@ -1,4 +1,4 @@
-package org.codenil.comm.netty.handler;
+package org.codenil.comm.handler;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;

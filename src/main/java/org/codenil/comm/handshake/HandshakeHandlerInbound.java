@@ -13,10 +13,11 @@ import java.util.concurrent.CompletableFuture;
 public class HandshakeHandlerInbound extends AbstractHandshakeHandler {
 
     public HandshakeHandlerInbound(
+            final String selfIdentifier,
             final CompletableFuture<PeerConnection> connectionFuture,
             final PeerConnectionEvents connectionEvent,
             final Handshaker handshaker) {
-        super(connectionFuture, connectionEvent, handshaker);
+        super(selfIdentifier, connectionFuture, connectionEvent, handshaker);
         handshaker.prepareResponder();
     }
 

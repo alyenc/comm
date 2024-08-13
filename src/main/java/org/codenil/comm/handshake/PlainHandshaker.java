@@ -2,8 +2,9 @@ package org.codenil.comm.handshake;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+
+import org.codenil.comm.handler.MessageHandler;
 import org.codenil.comm.message.MessageType;
-import org.codenil.comm.netty.handler.MessageHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -60,7 +61,6 @@ public class PlainHandshaker implements Handshaker {
                 "illegal invocation of onMessage on handshake that is not in progress");
 
         PlainMessage message = MessageHandler.parseMessage(buf);
-
         Optional<byte[]> nextMsg = Optional.empty();
         if (initiator) {
             checkState(responderMsg == null,
@@ -83,10 +83,5 @@ public class PlainHandshaker implements Handshaker {
         status.set(HandshakeStatus.SUCCESS);
         logger.trace("Handshake status set to {}", status.get());
         return nextMsg.map(Unpooled::wrappedBuffer);
-    }
-
-    @Override
-    public HandshakeSecrets secrets() {
-        return null;
     }
 }

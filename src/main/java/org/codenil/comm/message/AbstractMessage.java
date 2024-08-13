@@ -4,29 +4,28 @@ public abstract class AbstractMessage implements Message {
 
     private String requestId;
 
-    private byte[] data = new byte[]{};
-
-    public AbstractMessage(
-            final byte[] data) {
-        this.data = data;
-    }
+    private byte[] data;
 
     @Override
-    public String getRequestId() {
+    public String requestId() {
         return requestId;
     }
 
     @Override
-    public final int getSize() {
+    public final int size() {
         return data.length;
     }
 
     @Override
-    public byte[] getData() {
+    public byte[] data() {
         return data;
     }
 
     public void setRequestId(String requestId) {
         this.requestId = requestId;
+    }
+
+    public void setData(byte[] data) {
+        this.data = data;
     }
 }

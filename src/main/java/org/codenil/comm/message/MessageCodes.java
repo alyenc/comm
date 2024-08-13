@@ -6,7 +6,8 @@ public class MessageCodes {
     public static final int PING = 0x02;
     public static final int PONG = 0x03;
 
-    public static final int DATA_UPDATE = 0x04;
+    public static final int GOSSIP = 0x04;
+
     private MessageCodes() {}
 
     public static String messageName(final int code) {

@@ -1,4 +1,4 @@
-package org.codenil.comm.netty.handler;
+package org.codenil.comm.handler;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
@@ -18,12 +18,11 @@ public class MessageFrameEncoder extends MessageToByteEncoder<RawMessage> {
             final ChannelHandlerContext ctx,
             final RawMessage msg,
             final ByteBuf out) {
-        byte[] idBytes = Optional.ofNullable(msg.getRequestId()).orElse("").getBytes(StandardCharsets.UTF_8);
-
+        byte[] idBytes = Optional.ofNullable(msg.requestId()).orElse("").getBytes(StandardCharsets.UTF_8);
         SerializeHelper builder = new SerializeHelper();
         ByteBuf buf = builder.writeBytes(idBytes)
-                .writeInt(msg.getCode())
-                .writeBytes(msg.getData())
+                .writeInt(msg.code())
+                .writeBytes(msg.data())
                 .build();
 
         out.writeBytes(buf);

@@ -1,27 +1,33 @@
 package org.codenil.comm.message;
 
-import java.util.Optional;
-
 public enum DisconnectReason {
 
-    UNKNOWN(null),
+    UNKNOWN((byte) 0x00, ""),
 
-    TIMEOUT((byte) 0x0b),
+    TIMEOUT((byte) 0x0b, ""),
 
     INVALID_MESSAGE_RECEIVED((byte) 0x02, "An exception was caught decoding message"),
+
     ;
 
-    private final Optional<Byte> code;
-    private final Optional<String> message;
+    private final Byte code;
+    private final String message;
 
     DisconnectReason(final Byte code) {
-        this.code = Optional.ofNullable(code);
-        this.message = Optional.empty();
+        this.code = code;
+        this.message = "";
     }
 
     DisconnectReason(final Byte code, final String message) {
-        this.code = Optional.ofNullable(code);
-        this.message = Optional.of(message);
+        this.code = code;
+        this.message = message;
     }
 
+    public Byte code() {
+        return code;
+    }
+
+    public String message() {
+        return message;
+    }
 }

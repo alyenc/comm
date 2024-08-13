@@ -1,4 +1,6 @@
-package org.codenil.comm.connections;
+package org.codenil.comm.callback;
+
+import org.codenil.comm.connections.PeerConnection;
 
 /**
  * 连接回调

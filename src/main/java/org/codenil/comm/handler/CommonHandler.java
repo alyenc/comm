@@ -1,10 +1,10 @@
-package org.codenil.comm.netty.handler;
+package org.codenil.comm.handler;
 
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
+
 import org.codenil.comm.connections.PeerConnection;
 import org.codenil.comm.connections.PeerConnectionEvents;
-import org.codenil.comm.message.Message;
 import org.codenil.comm.message.MessageCodes;
 import org.codenil.comm.message.PongMessage;
 import org.codenil.comm.message.RawMessage;
@@ -32,8 +32,8 @@ public class CommonHandler extends SimpleChannelInboundHandler<RawMessage> {
 
     @Override
     protected void channelRead0(final ChannelHandlerContext ctx, final RawMessage originalMessage) {
-        logger.debug("Received a message from {}", originalMessage.getCode());
-        switch (originalMessage.getCode()) {
+        logger.debug("Received a message from {}", originalMessage.code());
+        switch (originalMessage.code()) {
             case MessageCodes.PING:
                 logger.trace("Received Wire PING");
                 try {

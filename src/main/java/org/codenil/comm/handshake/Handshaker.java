@@ -14,7 +14,5 @@ public interface Handshaker {
 
     ByteBuf firstMessage();
 
-    HandshakeSecrets secrets();
-
     Optional<ByteBuf> handleMessage(ByteBuf buf);
 }

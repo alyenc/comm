@@ -2,17 +2,18 @@ package org.codenil.comm.message;
 
 public interface Message {
 
-    String getRequestId();
+    String requestId();
 
-    int getSize();
+    int size();
 
-    int getCode();
+    int code();
 
-    byte[] getData();
+    byte[] data();
 
     default RawMessage wrapMessage(final String requestId) {
-        RawMessage rawMessage = new RawMessage(getCode(), getData());
+        RawMessage rawMessage = RawMessage.create(code());
         rawMessage.setRequestId(requestId);
+        rawMessage.setData(data());
         return rawMessage;
     }
 }

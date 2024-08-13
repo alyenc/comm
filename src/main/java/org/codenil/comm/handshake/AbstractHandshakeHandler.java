@@ -4,10 +4,14 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.MessageToByteEncoder;
-import org.codenil.comm.connections.PeerConnectionEvents;
-import org.codenil.comm.message.*;
+
 import org.codenil.comm.connections.PeerConnection;
-import org.codenil.comm.netty.handler.MessageFrameDecoder;
+import org.codenil.comm.connections.PeerConnectionEvents;
+import org.codenil.comm.handler.MessageFrameDecoder;
+import org.codenil.comm.message.HelloMessage;
+import org.codenil.comm.message.MessageCodes;
+import org.codenil.comm.message.RawMessage;
+import org.codenil.comm.serialize.SerializeHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,12 +25,18 @@ public abstract class AbstractHandshakeHandler extends SimpleChannelInboundHandl
 
     private final CompletableFuture<PeerConnection> connectionFuture;
     private final PeerConnectionEvents connectionEvents;
+
+    /** 本机的标识 */
+    private final String selfIdentifier;
+
     protected final Handshaker handshaker;
 
     protected AbstractHandshakeHandler(
+            final String selfIdentifier,
             final CompletableFuture<PeerConnection> connectionFuture,
             final PeerConnectionEvents connectionEvents,
             final Handshaker handshaker) {
+        this.selfIdentifier = selfIdentifier;
         this.connectionFuture = connectionFuture;
         this.connectionEvents = connectionEvents;
         this.handshaker = handshaker;
@@ -50,15 +60,17 @@ public abstract class AbstractHandshakeHandler extends SimpleChannelInboundHandl
              */
             ctx.channel()
                     .pipeline()
-                    .replace(this, "DeFramer", new MessageFrameDecoder(connectionEvents, connectionFuture))
-                    .addBefore("DeFramer", "validate", new FirstMessageFrameEncoder());
+                    .replace(this, "FrameDecoder", new MessageFrameDecoder(connectionEvents, connectionFuture))
+                    .addBefore("FrameDecoder", "validate", new FirstMessageFrameEncoder());
 
             /*
              * 替换完编解码器后发送Hello消息
+             * hello消息需要带一些数据
              */
-            HelloMessage helloMessage = HelloMessage.create();
-            RawMessage rawMessage = new RawMessage(helloMessage.getCode(), helloMessage.getData());
-            rawMessage.setRequestId(helloMessage.getRequestId());
+            HelloMessage helloMessage = HelloMessage.create(selfIdentifier.getBytes(StandardCharsets.UTF_8));
+            RawMessage rawMessage = RawMessage.create(helloMessage.code());
+            rawMessage.setData(helloMessage.data());
+            rawMessage.setRequestId(helloMessage.requestId());
             ctx.writeAndFlush(rawMessage)
                     .addListener(ff -> {
                         if (ff.isSuccess()) {
@@ -90,42 +102,19 @@ public abstract class AbstractHandshakeHandler extends SimpleChannelInboundHandl
                 final ChannelHandlerContext context,
                 final RawMessage msg,
                 final ByteBuf out) {
-            if (msg.getCode() != MessageCodes.HELLO) {
-                throw new IllegalStateException("First message sent wasn't a HELLO.");
+            if (msg.code() != MessageCodes.HELLO) {
+                throw new IllegalStateException("First wire message sent wasn't a HELLO.");
             }
-            byte[] idBytes = Optional.ofNullable(msg.getRequestId()).orElse("").getBytes(StandardCharsets.UTF_8);
-            int channelsSize = msg.getChannels().size();
+            byte[] idBytes = Optional.ofNullable(msg.requestId()).orElse("").getBytes(StandardCharsets.UTF_8);
 
-            int channelBytesLength = 0;
-            for (String channel : msg.getChannels()) {
-                byte[] channelBytes = channel.getBytes(StandardCharsets.UTF_8);
-                channelBytesLength = channelBytesLength + 4 + channelBytes.length;
-            }
+            SerializeHelper builder = new SerializeHelper();
+            ByteBuf buf = builder.writeBytes(idBytes)
+                    .writeInt(msg.code())
+                    .writeBytes(msg.data())
+                    .build();
 
-            int payloadLength = 4 + 4 + idBytes.length + 4 + channelBytesLength + 4 + msg.getData().length;
-
-            // 写入协议头：消息总长度
-            out.writeInt(payloadLength + 4);
-
-            // 写入payload
-            // 写入code
-            out.writeInt(msg.getCode());
-
-            // 写入id
-            out.writeInt(idBytes.length);
-            out.writeBytes(idBytes);
-
-            // 写入channels
-            out.writeInt(channelsSize);
-            for (String channel : msg.getChannels()) {
-                byte[] channelBytes = channel.getBytes(StandardCharsets.UTF_8);
-                out.writeInt(channelBytes.length);
-                out.writeBytes(channelBytes);
-            }
-
-            // 写入data
-            out.writeInt(msg.getData().length);
-            out.writeBytes(msg.getData());
+            out.writeBytes(buf);
+            buf.release();
             context.pipeline().remove(this);
         }
     }

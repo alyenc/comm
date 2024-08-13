@@ -7,13 +7,18 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
-import org.codenil.comm.RemotePeer;
-import org.codenil.comm.connections.*;
 import org.codenil.comm.NetworkConfig;
+import org.codenil.comm.RemotePeer;
+import org.codenil.comm.callback.ConnectCallback;
+import org.codenil.comm.connections.ConnectionInitializer;
+import org.codenil.comm.connections.PeerConnection;
+import org.codenil.comm.connections.PeerConnectionEvents;
+import org.codenil.comm.connections.Subscribers;
+import org.codenil.comm.handler.TimeoutHandler;
 import org.codenil.comm.handshake.HandshakeHandlerInbound;
 import org.codenil.comm.handshake.HandshakeHandlerOutbound;
 import org.codenil.comm.handshake.PlainHandshaker;
-import org.codenil.comm.netty.handler.TimeoutHandler;
+
 
 import javax.annotation.Nonnull;
 import java.io.IOException;
@@ -39,13 +44,17 @@ public class NettyConnectionInitializer implements ConnectionInitializer {
     private final AtomicBoolean stopped = new AtomicBoolean(false);
 
     private final NetworkConfig config;
+    private final String selfIdentifier;
 
     private ChannelFuture server;
 
+
     public NettyConnectionInitializer(
             final NetworkConfig config,
+            final String selfIdentifier,
             final PeerConnectionEvents eventDispatcher) {
         this.config = config;
+        this.selfIdentifier = selfIdentifier;
         this.eventDispatcher = eventDispatcher;
     }
 
@@ -111,11 +120,6 @@ public class NettyConnectionInitializer implements ConnectionInitializer {
         return stoppedFuture;
     }
 
-    @Override
-    public void subscribeIncomingConnect(ConnectCallback callback) {
-        connectSubscribers.subscribe(callback);
-    }
-
     /**
      * 连接到远程
      */
@@ -123,10 +127,12 @@ public class NettyConnectionInitializer implements ConnectionInitializer {
     public CompletableFuture<PeerConnection> connect(RemotePeer remotePeer) {
         final CompletableFuture<PeerConnection> connectionFuture = new CompletableFuture<>();
 
+        String[] parts = remotePeer.endpoint().split(":");
+
         new Bootstrap()
                 .group(workers)
                 .channel(NioSocketChannel.class)
-                .remoteAddress(new InetSocketAddress(remotePeer.ip(), remotePeer.listeningPort()))
+                .remoteAddress(new InetSocketAddress(parts[0], Integer.parseInt(parts[1])))
                 .option(ChannelOption.TCP_NODELAY, true)
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, TIMEOUT_SECONDS * 1000)
                 .handler(outboundChannelInitializer(remotePeer, connectionFuture))
@@ -141,6 +147,7 @@ public class NettyConnectionInitializer implements ConnectionInitializer {
         return connectionFuture;
     }
 
+    @Nonnull
     private ChannelInitializer<SocketChannel> inboundChannelInitializer() {
         return new ChannelInitializer<>() {
             @Override
@@ -152,7 +159,7 @@ public class NettyConnectionInitializer implements ConnectionInitializer {
                 //其他处理器，TLS之类的
                 addAdditionalInboundHandlers(ch);
                 //握手消息处理器
-                ch.pipeline().addLast(inboundHandler(connectionFuture));
+                ch.pipeline().addLast(inboundHandler(selfIdentifier, connectionFuture));
             }
         };
     }
@@ -164,11 +171,11 @@ public class NettyConnectionInitializer implements ConnectionInitializer {
             @Override
             protected void initChannel(final SocketChannel ch) throws Exception {
                 //连接处理器
-                ch.pipeline().addLast(timeoutHandler(connectionFuture, "Timed out waiting to establish connection with peer: " + remotePeer.ip()));
+                ch.pipeline().addLast(timeoutHandler(connectionFuture, "Timed out waiting to establish connection with peer: " + remotePeer.toString()));
                 //其他处理器
                 addAdditionalOutboundHandlers(ch, remotePeer);
                 //握手消息处理器
-                ch.pipeline().addLast(outboundHandler(remotePeer, connectionFuture));
+                ch.pipeline().addLast(outboundHandler(selfIdentifier, remotePeer, connectionFuture));
             }
         };
     }
@@ -182,14 +189,19 @@ public class NettyConnectionInitializer implements ConnectionInitializer {
 
     @Nonnull
     private HandshakeHandlerInbound inboundHandler(
+            final String selfIdentifier,
             final CompletableFuture<PeerConnection> connectionFuture) {
-        return new HandshakeHandlerInbound(connectionFuture, eventDispatcher, new PlainHandshaker());
+        return new HandshakeHandlerInbound(selfIdentifier, connectionFuture,
+                eventDispatcher, new PlainHandshaker());
     }
 
     @Nonnull
     private HandshakeHandlerOutbound outboundHandler(
-            final RemotePeer remotePeer, final CompletableFuture<PeerConnection> connectionFuture) {
-        return new HandshakeHandlerOutbound(connectionFuture, eventDispatcher, new PlainHandshaker());
+            final String selfIdentifier,
+            final RemotePeer remotePeer,
+            final CompletableFuture<PeerConnection> connectionFuture) {
+        return new HandshakeHandlerOutbound(selfIdentifier, connectionFuture,
+                eventDispatcher, new PlainHandshaker());
     }
 
     void addAdditionalOutboundHandlers(final Channel channel, final RemotePeer remotePeer)
